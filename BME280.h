@@ -30,12 +30,12 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #define ChipIdData 0x60
 
-#define ControlInstruction_MeasureTemperature 0xFA
+#define MeasureTemperature 0xFA
 
-#define ControlInstruction_MeasurePressure 0xF7
+#define MeasurePressure 0xF7
 
-#define ControlInstruction_MeasureHumidity 0xFD
-#define ControlInstruction_ControlHumidity 0xF2
+#define MeasureHumidity 0xFD
+#define ControlHumidity 0xF2
 
 
 
@@ -44,8 +44,22 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define Reg_CAL26 0xE1 // R calibration stored in 0xE1-0xF0
 #define Reg_Control 0xF4
 #define Reg_Config 0xF5
-#define Reg_CalibrationStart 0x88
-#define Reg_CalibrationEnd 0xE7
+
+#define Reg_CalibrationTStart 0x88
+#define Reg_CalibrationTEnd 0x8D
+
+#define Reg_CalibrationPStart 0x8E
+#define Reg_CalibrationPEnd 0x9F
+
+ enum
+    {
+  BME280_REG_DIG_H1              = 0xA1,
+  BME280_REG_DIG_H2              = 0xE1,
+  BME280_REG_DIG_H3              = 0xE3,
+  BME280_REG_DIG_H4              = 0xE4,
+  BME280_REG_DIG_H5              = 0xE5,
+  BME280_REG_DIG_H6              = 0xE7,
+    };
 #define Reg_AnalogConverterOutMSB 0xF6
 #define Reg_SoftReset 0xE0
 #define SoftResetInstruction 0xB6
@@ -53,10 +67,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define ErrorCode_1 "Entered sample resolution was invalid. See datasheet for details."
 #define ErrorCode_1_Num 1
 
-#define BME280_Mode_UltraLowPower		0
-#define BME280_Mode_Standard			1
-#define BME280_Mode_HighResolution		2
-#define BME280_Mode_UltraHighResolution	3
+
+#define BME280_MODE_NORMAL			0x03 //reads sensors at set interval
+#define BME280_MODE_FORCED			0x01 //reads sensors once when you write this register
 
 class BME280
 {
@@ -65,15 +78,18 @@ class BME280
 
 	  void Initialize(void);
 
-	  int GetUncompensatedTemperature();
-	  float CompensateTemperature(int uncompensatedTemperature);
+	  int32_t GetUncompensatedTemperature();
+	  float CompensateTemperature(int32_t uncompensatedTemperature);
 	  
-	  long GetUncompensatedPressure();
-	//  long CompensatePressure(long uncompensatedPressure);
+	  int32_t GetUncompensatedPressure();
+	  float CompensatePressure(int32_t uncompensatedPressure);
 	  
+	  int32_t GetUncompensatedHumidity();
+	  float CompensateHumidity(int32_t uncompensatedHumidity);
+
 	  float GetTemperature();
-	//  long GetPressure();
-	//  float GetHumidity();
+	  float GetPressure();
+	  float GetHumidity();
 	  
 	  //float GetAltitude(float currentSeaLevelPressureInPa);
 	  
@@ -120,5 +136,7 @@ class BME280
 		int8_t BME280_REGISTER_DIG_H6;
 
         uint8_t buffer[64];
+        int32_t t_fine;
 };
 #endif
+
