@@ -23,6 +23,16 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "Arduino.h"
 //#include <math.h>
 
+
+ uint8_t osrs_t = 1;             //Temperature oversampling x 1
+ uint8_t osrs_p = 1;             //Pressure oversampling x 1
+ uint8_t osrs_h = 1;             //Humidity oversampling x 1
+
+ uint8_t t_sb = 4;               //Tstandby, 5=1000ms, 4=500ms
+ uint8_t filter = 0;             //Filter off
+ uint8_t spi3w_en = 0;           //3-wire SPI Disable
+ uint8_t BME280_OperationMode = BME280_MODE_NORMAL;
+
 BME280::BME280()
 {
   ConversionWaitTimeMs = 5;
@@ -34,7 +44,7 @@ BME280::BME280()
 
   AcceptableTemperatureLatencyForPressure = 1000;
 
-  SetResolution(BME280_Mode_Standard, false);
+ // SetResolution(BME280_Mode_Standard, false);
 }
 
 uint8_t BME280::EnsureConnected()
@@ -51,28 +61,46 @@ uint8_t BME280::EnsureConnected()
 
 void BME280::Initialize()
 {
-	Read2(Reg_CalibrationStart, Reg_CalibrationEnd - Reg_CalibrationStart + 2, buffer);
+	uint8_t ctrl_meas_reg = (osrs_t << 5) | (osrs_p << 2) | BME280_OperationMode;
+	uint8_t ctrl_hum_reg  = osrs_h;
+
+	uint8_t config_reg    = (t_sb << 5) | (filter << 2) | spi3w_en;
+
+	Write(ControlHumidity, ctrl_hum_reg);
+	Write(Reg_Control, ctrl_meas_reg);
+	Write(Reg_Config, config_reg);
+
+
+	Read2(Reg_CalibrationTStart, Reg_CalibrationTEnd - Reg_CalibrationTStart + 1, buffer);
 	// This data is in Big Endian format from the BME280.
-    BME280_REGISTER_DIG_T1 = (buffer[0] << 8) | buffer[1];
-    BME280_REGISTER_DIG_T2 = (buffer[2] << 8) | buffer[3];
-    BME280_REGISTER_DIG_T3 = (buffer[4] << 8) | buffer[5];
+    BME280_REGISTER_DIG_T1 = (buffer[1] << 8) | buffer[0];
+    BME280_REGISTER_DIG_T2 = (buffer[3] << 8) | buffer[2];
+    BME280_REGISTER_DIG_T3 = (buffer[5] << 8) | buffer[4];
 
-    BME280_REGISTER_DIG_P1 = (buffer[6] << 8) | buffer[7];
-    BME280_REGISTER_DIG_P2 = (buffer[8] << 8) | buffer[9];
-    BME280_REGISTER_DIG_P3 = (buffer[10] << 8) | buffer[11];
-    BME280_REGISTER_DIG_P4 = (buffer[12] << 8) | buffer[13];
-    BME280_REGISTER_DIG_P5 = (buffer[14] << 8) | buffer[15];
-    BME280_REGISTER_DIG_P6 = (buffer[16] << 8) | buffer[17];
-    BME280_REGISTER_DIG_P7 = (buffer[18] << 8) | buffer[19];
-    BME280_REGISTER_DIG_P8 = (buffer[20] << 8) | buffer[21];
-	BME280_REGISTER_DIG_P9 = (buffer[22] << 8) | buffer[23];
+	Read2(Reg_CalibrationPStart, Reg_CalibrationPEnd - Reg_CalibrationPStart + 1, buffer);
 
-	BME280_REGISTER_DIG_H1 = (buffer[24] << 8) | buffer[25];
-    BME280_REGISTER_DIG_H2 = (buffer[26] << 8) | buffer[27];
-    BME280_REGISTER_DIG_H3 = (buffer[28] << 8) | buffer[29];
-    BME280_REGISTER_DIG_H4 = (buffer[30] << 8) | buffer[31];
-    BME280_REGISTER_DIG_H5 = (buffer[32] << 8) | buffer[33];
-	BME280_REGISTER_DIG_H6 = (buffer[34] << 8) | buffer[35];
+    BME280_REGISTER_DIG_P1 = (buffer[1] << 8) | buffer[0];
+    BME280_REGISTER_DIG_P2 = (buffer[3] << 8) | buffer[2];
+    BME280_REGISTER_DIG_P3 = (buffer[5] << 8) | buffer[4];
+    BME280_REGISTER_DIG_P4 = (buffer[7] << 8) | buffer[6];
+    BME280_REGISTER_DIG_P5 = (buffer[9] << 8) | buffer[8];
+    BME280_REGISTER_DIG_P6 = (buffer[11] << 8) | buffer[10];
+    BME280_REGISTER_DIG_P7 = (buffer[13] << 8) | buffer[12];
+    BME280_REGISTER_DIG_P8 = (buffer[15] << 8) | buffer[14];
+	BME280_REGISTER_DIG_P9 = (buffer[17] << 8) | buffer[16];
+
+	Read2(BME280_REG_DIG_H1, 1, buffer);
+	BME280_REGISTER_DIG_H1 = buffer[0];
+	Read2(BME280_REG_DIG_H2, 2, buffer);
+    BME280_REGISTER_DIG_H2 = (buffer[1] << 8) | buffer[0];
+	Read2(BME280_REG_DIG_H3, 1, buffer);
+    BME280_REGISTER_DIG_H3 = buffer[0];
+    Read2(BME280_REG_DIG_H4, 4, buffer);
+    BME280_REGISTER_DIG_H4 = (buffer[0] << 4) | (buffer[1]&0x0F);
+
+    BME280_REGISTER_DIG_H5 = (buffer[2]<<4) | ((buffer[1] & 0xF0)>>4);
+
+	BME280_REGISTER_DIG_H6 = buffer[3];
 }
 
 void BME280::PrintCalibrationData()
@@ -100,146 +128,100 @@ void BME280::PrintCalibrationData()
 
 }
 
-int BME280::GetUncompensatedTemperature()
+int32_t BME280::GetUncompensatedTemperature()
 {
-    // Instruct device to perform a conversion.
-    Write(Reg_Control, ControlInstruction_MeasureTemperature);
-    // Wait for the conversion to complete.
-    delay(5);
-    Read2(Reg_AnalogConverterOutMSB, 2, buffer);
-    int value = (buffer[0] << 8) | buffer[1];
+
+	Read2(MeasureTemperature, 3, buffer);
+ 	int32_t value = ((buffer[0] <<12) | (buffer[1] <<4) | (buffer[2] >>4));
+
     return value;
 }
 
-long BME280::GetUncompensatedPressure()
+int32_t BME280::GetUncompensatedPressure()
 {
-    long pressure = 0;
-    int loops = Oversample ? 3 : 1;
 
-    for (int i = 0; i < loops; i++)
-    {
-        // Instruct device to perform a conversion, including the oversampling data.
-        uint8_t CtrlByte = ControlInstruction_MeasurePressure + (OversamplingSetting << 6);
-        Write(Reg_Control, CtrlByte);
-        // Wait for the conversion
-        delay(ConversionWaitTimeMs);
-        // Read the conversion data.
-        uint8_t buffer[3];
-		Read2(Reg_AnalogConverterOutMSB, 3, buffer);
+		Read2(MeasurePressure, 3, buffer);
 
-        // Collect the data (and push back the LSB if we are not sampling them).
-        pressure = ((((long)buffer[0] <<16) | ((long)buffer[1] <<8) | ((long)buffer[2])) >> (8-OversamplingSetting));
-    }
-    return pressure / loops;
+		int32_t value = ((buffer[0] <<12) | (buffer[1] <<4) | (buffer[2] >>4));
+
+    return value ;
+}
+
+int32_t BME280::GetUncompensatedHumidity()
+{
+
+		Read2(MeasureHumidity, 2, buffer);
+
+		int32_t value = ((buffer[0] <<8) | buffer[1]);
+
+    return value ;
 }
 
 
-//BME280_S32_t t_fine;
-//BME280_S32_t BME280_compensate_T_int32(BME280_S32_t adc_T)
-//{
-//BME280_S32_t var1, var2, T;
-//var1 = ((((adc_T>>3) – ((BME280_S32_t)dig_T1<<1))) * ((BME280_S32_t)dig_T2)) >> 11;
-//var2 = (((((adc_T>>4) – ((BME280_S32_t)dig_T1)) * ((adc_T>>4) – ((BME280_S32_t)dig_T1))) >> 12) *
-//((BME280_S32_t)dig_T3)) >> 14;
-//t_fine = var1 + var2;
-//T = (t_fine * 5 + 128) >> 8;
-//return T;
-//}
-//The data type “BME280_S32_t” should define a 32 bit signed integer variable type and can
-//usually be defined as “long signed int”.
-//The data type “BME280_U32_t” should define a 32 bit unsigned integer variable type and can
-//usually be defined as “long unsigned int”.
-
-float BME280::CompensateTemperature(int uncompensatedTemperature)
+float BME280::CompensateTemperature(int32_t uncompensatedTemperature)
 {
 
-	int temperature;
-	int x2;
-	long x1;
-	x1 = (((((long)uncompensatedTemperature>>3) - ((long)BME280_REGISTER_DIG_T1<<1))) * ((long)BME280_REGISTER_DIG_T2)) >> 11;
-	x2 = ((((((long)uncompensatedTemperature>>4) - ((long)BME280_REGISTER_DIG_T1)) * (((long)uncompensatedTemperature>>4) - ((long)BME280_REGISTER_DIG_T1))) >> 12) * ((long)BME280_REGISTER_DIG_T3)) >> 14;
-	long t_fine = x1 + x2;
-	temperature = (t_fine * 5 + 128) >> 8;  /* temperature in 0.1 deg C*/
+	//long temperature;
+	int32_t var1,var2;
+	var1 = ((((uncompensatedTemperature>>3) - ((int32_t)BME280_REGISTER_DIG_T1<<1))) * ((int32_t)BME280_REGISTER_DIG_T2)) >> 11;
+	var2 = (((((uncompensatedTemperature>>4) - ((int32_t)BME280_REGISTER_DIG_T1)) * ((uncompensatedTemperature>>4) - ((int32_t)BME280_REGISTER_DIG_T1))) >> 12) * ((int32_t)BME280_REGISTER_DIG_T3)) >> 14;
+	t_fine = var1 + var2;
+	float temperature = (t_fine * 5 + 128) >> 8;  /* temperature in 0.01 deg C*/
 
-	float fTemperature = temperature;
-	//fTemperature /= 10.0;
-
-	// Record this data because it is required by the pressure algorithem.
-	//LastTemperatureData = param_b5;
-	//LastTemperatureTime = millis();
-
-	return fTemperature;
+	return temperature/100;
 
 
-//	int temperature;
-//    int x2;
-//	long x1;
-//	x1 = (((long)uncompensatedTemperature - (long)Calibration_AC6) * (long)Calibration_AC5) >> 15;
-//    x2 = ((long)Calibration_MC << 11) / (x1 + Calibration_MD);
-//    int param_b5 = x1 + x2;
-//    temperature = (int)((param_b5 + 8) >> 4);  /* temperature in 0.1 deg C*/
-//    float fTemperature = temperature;
-//	fTemperature /= 10.0;
-//
-//    // Record this data because it is required by the pressure algorithem.
-//    LastTemperatureData = param_b5;
-//    LastTemperatureTime = millis();
-//
-//    return fTemperature;
 }
 //
-//long BME280::CompensatePressure(long uncompensatedPressure)
-//{
-//	int msSinceLastTempReading = millis() - LastTemperatureTime;
-//    // Check to see if we have old temperature data.
-//    if (msSinceLastTempReading > AcceptableTemperatureLatencyForPressure)
-//        GetTemperature(); // Refresh the temperature.
-//
-//    // Data from the BME280 datasheet to test algorithm.
-//    /*OversamplingSetting = 0;
-//    uncompensatedPressure = 23843;
-//    LastTemperatureData = 2399;
-//    Calibration_AC1 = 408;
-//    Calibration_AC2 = -72;
-//    Calibration_AC3 = -14383;
-//    Calibration_AC4 = 32741;
-//    Calibration_AC5 = 32757;
-//    Calibration_AC6 = 23153;
-//    Calibration_B1 = 6190;
-//    Calibration_B2 = 4;
-//    Calibration_MB = -32767;
-//    Calibration_MC = -8711;
-//    Calibration_MD = 2868;*/
-//
-//    // Algorithm taken from BME280 datasheet.
-//    long b6 = LastTemperatureData - 4000;
-//    long x1 = (Calibration_B2 * (b6 * b6 >> 12)) >> 11;
-//    long x2 = Calibration_AC2 * b6 >> 11;
-//    long x3 = x1 + x2;
-//    long b3 = ((Calibration_AC1 * 4 + x3) << OversamplingSetting) + 2;
-//    b3 = b3 >> 2;
-//    x1 = Calibration_AC3 * b6 >> 13;
-//    x2 = (Calibration_B1 * (b6 * b6 >> 12)) >> 16;
-//    x3 = ((x1 + x2) + 2) >> 2;
-//    long b4 = Calibration_AC4 * (x3 + 32768) >> 15;
-//    unsigned long b7 = (((uncompensatedPressure - b3)) * (50000 >> OversamplingSetting));
-//    long p;
-//    if (b7 < 0x80000000)
-//	{
-//		p = ((b7 * 2) / b4);
-//	}
-//    else
-//	{
-//        p = ((b7 / b4) * 2);
-//	}
-//
-//    x1 = (p >> 8) * (p >> 8);
-//    x1 = (x1 * 3038) >> 16;
-//    x2 = (-7357 * p) >> 16;
-//    p = p + ((x1 + x2 + 3791) >> 4);
-//
-//    return p;
-//}
+float BME280::CompensatePressure(int32_t uncompensatedPressure) {
+
+	GetTemperature();
+	int64_t var1, var2, p;
+
+	  var1 = ((int64_t)t_fine) - 128000;
+	  var2 = var1 * var1 * (int64_t)BME280_REGISTER_DIG_P6;
+	  var2 = var2 + ((var1*(int64_t)BME280_REGISTER_DIG_P5)<<17);
+	  var2 = var2 + (((int64_t)BME280_REGISTER_DIG_P4)<<35);
+	  var1 = ((var1 * var1 * (int64_t)BME280_REGISTER_DIG_P3)>>8) + ((var1 * (int64_t)BME280_REGISTER_DIG_P2)<<12);
+	  var1 = (((((int64_t)1)<<47)+var1))*((int64_t)BME280_REGISTER_DIG_P1)>>33;
+
+	  if (var1 == 0) {
+		return 0;  // avoid exception caused by division by zero
+	  }
+	  p = 1048576 - uncompensatedPressure;
+	  p = (((p<<31) - var2)*3125) / var1;
+	  var1 = (((int64_t)BME280_REGISTER_DIG_P9) * (p>>13) * (p>>13)) >> 25;
+	  var2 = (((int64_t)BME280_REGISTER_DIG_P8) * p) >> 19;
+
+	  p = ((p + var1 + var2) >> 8) + (((int64_t)BME280_REGISTER_DIG_P7)<<4);
+	  return (float)p/256;
+
+}
+
+float BME280::CompensateHumidity(int32_t uncompensatedPressure) {
+
+	GetTemperature();
+
+
+	  int32_t v_x1_u32r;
+
+	  v_x1_u32r = (t_fine - ((int32_t)76800));
+
+	  v_x1_u32r = (((((uncompensatedPressure << 14) - (((int32_t)BME280_REGISTER_DIG_H4) << 20) -
+			  (((int32_t)BME280_REGISTER_DIG_H5) * v_x1_u32r)) + ((int32_t)16384)) >> 15) *
+		       (((((((v_x1_u32r * ((int32_t)BME280_REGISTER_DIG_H6)) >> 10) *
+			    (((v_x1_u32r * ((int32_t)BME280_REGISTER_DIG_H3)) >> 11) + ((int32_t)32768))) >> 10) +
+			  ((int32_t)2097152)) * ((int32_t)BME280_REGISTER_DIG_H2) + 8192) >> 14));
+
+	  v_x1_u32r = (v_x1_u32r - (((((v_x1_u32r >> 15) * (v_x1_u32r >> 15)) >> 7) *
+				     ((int32_t)BME280_REGISTER_DIG_H1)) >> 4));
+
+	  v_x1_u32r = (v_x1_u32r < 0) ? 0 : v_x1_u32r;
+	  v_x1_u32r = (v_x1_u32r > 419430400) ? 419430400 : v_x1_u32r;
+	  float h = (v_x1_u32r>>12);
+	  return  h / 1024.0;
+
+}
 
 void BME280::SoftReset()
 {
@@ -252,10 +234,15 @@ float BME280::GetTemperature()
     return CompensateTemperature(GetUncompensatedTemperature());
 }
 
-//long BME280::GetPressure()
-//{
-//    return CompensatePressure(GetUncompensatedPressure());
-//}
+float BME280::GetPressure()
+{
+    return CompensatePressure(GetUncompensatedPressure());
+}
+
+float BME280::GetHumidity()
+{
+    return CompensateHumidity(GetUncompensatedHumidity());
+}
 
 /*float BME280::GetAltitude(float currentSeaLevelPressureInPa)
 {
@@ -266,28 +253,28 @@ float BME280::GetTemperature()
     return altitude;
 }*/
 
-uint8_t BME280::SetResolution(uint8_t sampleResolution, bool oversample)
-{
-    OversamplingSetting = sampleResolution;
-    Oversample = oversample;
-    switch (sampleResolution)
-    {
-        case 0:
-            ConversionWaitTimeMs = 5;
-            break;
-        case 1:
-            ConversionWaitTimeMs = 8;
-            break;
-        case 2:
-            ConversionWaitTimeMs = 14;
-            break;
-        case 3:
-            ConversionWaitTimeMs = 26;
-            break;
-        default:
-            return ErrorCode_1_Num;
-    }
-}
+//uint8_t BME280::SetResolution(uint8_t sampleResolution, bool oversample)
+//{
+//    OversamplingSetting = sampleResolution;
+//    Oversample = oversample;
+//    switch (sampleResolution)
+//    {
+//        case 0:
+//            ConversionWaitTimeMs = 5;
+//            break;
+//        case 1:
+//            ConversionWaitTimeMs = 8;
+//            break;
+//        case 2:
+//            ConversionWaitTimeMs = 14;
+//            break;
+//        case 3:
+//            ConversionWaitTimeMs = 26;
+//            break;
+//        default:
+//            return ErrorCode_1_Num;
+//    }
+//}
 
 void BME280::Write(int address, int data)
 {
